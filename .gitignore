@@ -1,0 +1,35 @@
+# Source files (not part of the skills)
+getting_started_with_dynamic_tables.txt
+classify_unstructured_customer_reviews.txt
+getting_started_with_python.py
+Tutorial Skills_ Agent-as-the-Teacher.md
+
+# Reference repo (cloned for learning, not part of this project)
+referenceskillrepo/
+
+# OS files
+.DS_Store
+**/.DS_Store
+Thumbs.db
+
+# Editor files
+*.swp
+*.swo
+*~
+.idea/
+.vscode/
+*.sublime-*
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.Python
+*.so
+.env
+.venv
+venv/
+ENV/
+
+# Jupyter
+.ipynb_checkpoints/

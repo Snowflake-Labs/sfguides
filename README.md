@@ -2,6 +2,23 @@
 
 Interactive, agent-guided tutorials that teach Snowflake features through hands-on learning. Built using the "Agent-as-the-Teacher" pattern for [Cortex Code](https://docs.snowflake.com/en/user-guide/snowflake-cortex/cortex-code).
 
+## Quick Install
+
+```bash
+# Install all tutorial skills with one command
+npx skills add https://github.com/Snowflake-Labs/sfguides
+```
+
+Or install individual skills:
+
+```bash
+npx skills add https://github.com/Snowflake-Labs/sfguides/tree/main/dynamic-tables-tutorial
+npx skills add https://github.com/Snowflake-Labs/sfguides/tree/main/cortex-classify-tutorial
+npx skills add https://github.com/Snowflake-Labs/sfguides/tree/main/cortex-classify-notebook
+```
+
+> Powered by [skills](https://github.com/vercel-labs/skills) from Vercel Labs
+
 ## Available Skills
 
 | Skill | Description | Invoke With |

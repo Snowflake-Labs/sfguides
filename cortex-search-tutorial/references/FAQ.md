@@ -224,10 +224,12 @@ resp.to_json()
 
 ### What embedding models are supported?
 
-| Model | Description |
-|-------|-------------|
-| `snowflake-arctic-embed-l-v2.0` | High-quality, 1024 dimensions |
-| `snowflake-arctic-embed-m-v1.5` | Good quality, 768 dimensions |
+| Model | Dimensions | Context Window | Language Support | Description |
+|-------|-----------|----------------|-----------------|-------------|
+| `snowflake-arctic-embed-m-v1.5` (default) | 768 | 512 tokens | English-only | Fastest indexing, lowest cost. 110M parameters. |
+| `snowflake-arctic-embed-l-v2.0` | 1024 | 512 tokens | Multilingual | Price-performant multilingual model. 568M parameters. |
+| `snowflake-arctic-embed-l-v2.0-8k` | 1024 | 8192 tokens | Multilingual | Same as above with an increased 8K token context window. |
+| `voyage-multilingual-2` | 1024 | 32,000 tokens | Multilingual | Voyage's multilingual model with the largest context window. |
 
 You can also bring your own vector embeddings with multi-index services.
 
@@ -247,7 +249,13 @@ ATTRIBUTES columns can be:
 
 ### Can I search non-English text?
 
-Yes. The Snowflake Arctic embedding models support multiple languages. Performance is best for common languages (English, Spanish, French, German, etc.) and may vary for less common languages.
+Yes. The following multilingual embedding models are available for non-English text:
+
+- **`snowflake-arctic-embed-l-v2.0`** — 512-token context window
+- **`snowflake-arctic-embed-l-v2.0-8k`** — 8192-token context window
+- **`voyage-multilingual-2`** — 32,000-token context window
+
+Note that `snowflake-arctic-embed-m-v1.5` (the default) is **English-only**. If your data contains non-English text, explicitly specify one of the multilingual models above via the `EMBEDDING_MODEL` parameter when creating your service.
 
 ### What is CORTEX_SEARCH_DATA_SCAN?
 

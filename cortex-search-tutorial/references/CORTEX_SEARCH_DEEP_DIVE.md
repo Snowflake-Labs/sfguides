@@ -87,10 +87,12 @@ When creating a Cortex Search Service, you can specify which embedding model to 
 
 ### Available Models
 
-| Model | Dimensions | Best For |
-|-------|-----------|----------|
-| `snowflake-arctic-embed-l-v2.0` | 1024 | High-quality search (recommended) |
-| `snowflake-arctic-embed-m-v1.5` | 768 | Good quality, lower compute cost |
+| Model | Dimensions | Context Window (tokens) | Language Support | Description |
+|-------|-----------|------------------------|-----------------|-------------|
+| `snowflake-arctic-embed-m-v1.5` (default) | 768 | 512 | English-only | Most practical, English-only model. 110M parameters, fastest indexing times. |
+| `snowflake-arctic-embed-l-v2.0` | 1024 | 512 | Multilingual | Price-performant multilingual model. 568M parameters, high quality on English and non-English datasets. |
+| `snowflake-arctic-embed-l-v2.0-8k` | 1024 | 8192 | Multilingual | Same as above with an increased 8K token context window. |
+| `voyage-multilingual-2` | 1024 | 32,000 | Multilingual | Voyage's multilingual model. High quality on both English and non-English datasets. |
 
 ### Default Behavior
 
@@ -100,8 +102,10 @@ When creating a Cortex Search Service, you can specify which embedding model to 
 
 ### Choosing a Model
 
-- **For production / high-quality search**: Use `snowflake-arctic-embed-l-v2.0`
-- **For prototyping / cost-sensitive**: Use `snowflake-arctic-embed-m-v1.5`
+- **For English-only, fast indexing**: Use `snowflake-arctic-embed-m-v1.5` (default) — smallest model, lowest cost
+- **For multilingual, high-quality search**: Use `snowflake-arctic-embed-l-v2.0` — best balance of quality and cost
+- **For long documents (up to 8K tokens)**: Use `snowflake-arctic-embed-l-v2.0-8k` — same quality as above with a larger context window
+- **For very long documents (up to 32K tokens)**: Use `voyage-multilingual-2` — largest context window, multilingual
 
 ## Single-Index vs Multi-Index Services
 

@@ -40,7 +40,7 @@ If your preferred model isn't available in your region, yes. Check the docs for 
 
 1. **Cortex Analyst** (`cortex_analyst_text_to_sql`) - Query structured data via semantic views
 2. **Cortex Search** (`cortex_search`) - Search unstructured data via search services
-3. **Custom Tools** (`generic`) - Call stored procedures or UDFs
+3. **Custom Tools** (`generic`) - Call stored procedures
 4. **System Execute SQL** (`system_execute_sql`) - Run dynamic SQL
 5. **Web Search** - Search the web (requires account-level enablement)
 
@@ -48,12 +48,12 @@ If your preferred model isn't available in your region, yes. Check the docs for 
 
 The agent uses the tool descriptions and orchestration instructions to decide. Good descriptions are critical:
 
-```json
-// Good - specific about when to use
-"description": "Query sales data for revenue, quantities, and trends. Use for numerical analysis."
+```yaml
+# Good - specific about when to use
+description: "Query sales data for revenue, quantities, and trends. Use for numerical analysis."
 
-// Bad - too vague
-"description": "Get data from the database"
+# Bad - too vague
+description: "Get data from the database"
 ```
 
 ### Can an agent use multiple tools in one query?
@@ -62,14 +62,21 @@ Yes! The agent can plan multi-step tasks that use different tools. For example:
 - User asks: "How did Laptop Pro sell and what are its specs?"
 - Agent: Uses Cortex Analyst for sales data, then Cortex Search for specs
 
-### What's the difference between Cortex Analyst and Cortex Search?
+### What's the difference between Cortex Analyst, Cortex Search, and Custom Tools?
 
-| Cortex Analyst | Cortex Search |
-|----------------|---------------|
-| Structured data (tables) | Unstructured data (text, docs) |
-| Generates SQL queries | Vector similarity search |
-| Requires semantic view | Requires search service |
-| Returns query results | Returns relevant documents |
+| Cortex Analyst | Cortex Search | Custom Tools (Generic) |
+|----------------|---------------|----------------------|
+| Structured data (tables) | Unstructured data (text, docs) | Custom business logic |
+| Generates SQL queries | Vector similarity search | Calls stored procedures |
+| Requires semantic view | Requires search service | Requires stored procedure |
+| Returns query results | Returns relevant documents | Returns procedure output |
+
+### Why use stored procedures instead of UDFs for custom tools?
+
+- The Snowsight custom tools picker only lists procedures
+- Procedures support `EXECUTE AS CALLER` for proper privilege flow
+- Procedures can contain complex multi-statement logic
+- Procedures support `DECLARE`/`BEGIN`/`END` blocks
 
 ---
 
@@ -86,8 +93,39 @@ In the `FROM SPECIFICATION` YAML, use the `instructions` key with three sub-keys
 ```yaml
 instructions:
   system: "You are a helpful assistant."
-  orchestration: "Use Analyst for sales data. Use Search for documentation."
+  orchestration: "Use Analyst for sales data. Use Search for documentation. Use InventoryLookup for stock checks."
   response: "Be concise and include relevant numbers."
+```
+
+### How do I configure a custom tool (generic)?
+
+Two parts are needed:
+
+1. **tool_spec** with `input_schema`:
+```yaml
+tools:
+  - tool_spec:
+      type: "generic"
+      name: "InventoryLookup"
+      description: "Checks stock levels"
+      input_schema:
+        type: "object"
+        properties:
+          p_product_name:
+            type: "string"
+            description: "Product name"
+        required: ["p_product_name"]
+```
+
+2. **tool_resources** entry:
+```yaml
+tool_resources:
+  InventoryLookup:
+    type: "procedure"
+    identifier: "DB.SCHEMA.CHECK_INVENTORY_PROC"
+    execution_environment:
+      type: "warehouse"
+      warehouse: "COMPUTE_WH"
 ```
 
 ### How do I make my agent more accurate?

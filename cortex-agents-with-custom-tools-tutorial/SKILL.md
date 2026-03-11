@@ -1,17 +1,17 @@
 ---
-name: cortex-agents-tutorial
-description: Interactive tutorial teaching Snowflake Cortex Agents. Guide users step-by-step through building AI agents that orchestrate across structured and unstructured data using Cortex Analyst, Cortex Search, and custom tools. Use when user wants to learn cortex agents, build AI agents, create intelligent assistants, or understand agent orchestration.
+name: cortex-agents-with-custom-tools-tutorial
+description: Advanced tutorial teaching Snowflake Cortex Agents with custom tools. Extends the base tutorial by adding stored procedure-based tools (inventory lookup, price calculator, product summary) alongside Cortex Analyst and Cortex Search. Use when user wants to build agents with custom business logic, stored procedures as tools, or multi-tool orchestration.
 compatibility: Requires Snowflake account with Cortex AI enabled. Requires ACCOUNTADMIN role.
 metadata:
   author: Snowflake
-  version: "5.0"
+  version: "1.0"
   type: tutorial
   updated: "2026-03"
 ---
 
-# Cortex Agents Tutorial Skill
+# Cortex Agents with Custom Tools Tutorial Skill
 
-You are an expert instructor teaching Snowflake Cortex Agents. Your role is to guide the user through building AI agents that orchestrate across multiple data sources and tools, ensuring they understand each concept deeply before moving forward.
+You are an expert instructor teaching Snowflake Cortex Agents with an emphasis on custom tools. This tutorial builds on the base Cortex Agents tutorial by adding stored procedure-based tools that execute custom business logic. By the end, the user will have a 5-tool agent that orchestrates across structured data (Analyst), unstructured documents (Search), and custom procedures (InventoryLookup, PriceCalculator, ProductSummary).
 
 ## CRITICAL: Syntax Reference (Use These EXACT Patterns)
 
@@ -50,32 +50,101 @@ orchestration:
     tokens: 16000
 instructions:
   system: "You are a helpful assistant."
-  orchestration: "Use Analyst for sales data. Use Search for documentation."
+  orchestration: "Use Analyst for sales data. Use Search for docs. Use InventoryLookup for stock levels."
   response: "Be concise and include relevant numbers."
 tools:
   - tool_spec:
       type: "cortex_analyst_text_to_sql"
       name: "Analyst"
-      description: "Queries structured sales data by converting natural language to SQL"
+      description: "Queries structured sales data"
   - tool_spec:
       type: "cortex_search"
       name: "Search"
-      description: "Searches product documentation and troubleshooting guides"
+      description: "Searches product documentation"
+  - tool_spec:
+      type: "generic"
+      name: "InventoryLookup"
+      description: "Check product stock levels"
+      input_schema:
+        type: "object"
+        properties:
+          p_product_name:
+            type: "string"
+            description: "Product name to check"
+        required: ["p_product_name"]
 tool_resources:
   Analyst:
-    semantic_view: "DB.SCHEMA.SEMANTIC_VIEW_NAME"
+    semantic_view: "DB.SCHEMA.SEMANTIC_VIEW"
     execution_environment:
       type: "warehouse"
       warehouse: "COMPUTE_WH"
   Search:
-    name: "DB.SCHEMA.SEARCH_SERVICE_NAME"
+    name: "DB.SCHEMA.SEARCH_SERVICE"
     max_results: "3"
+  InventoryLookup:
+    type: "procedure"
+    identifier: "DB.SCHEMA.CHECK_INVENTORY_PROC"
+    execution_environment:
+      type: "warehouse"
+      warehouse: "COMPUTE_WH"
 $$;
 ```
 
-**CRITICAL**: The `execution_environment` block is REQUIRED for Cortex Analyst tools.
+**CRITICAL**: The `execution_environment` block is REQUIRED for Cortex Analyst and custom (generic) tools.
 Using a bare `warehouse: "COMPUTE_WH"` key will silently fail with error 399504:
 "The Analyst tool is missing an execution environment."
+
+### Custom Tool Procedures
+
+Custom agent tools require **stored procedures**, not UDFs:
+
+```sql
+CREATE OR REPLACE PROCEDURE my_proc(p_param VARCHAR)
+RETURNS VARCHAR
+LANGUAGE SQL
+EXECUTE AS CALLER
+AS
+$$
+DECLARE
+    result VARCHAR;
+BEGIN
+    SELECT ... INTO :result FROM ... WHERE UPPER(col) = UPPER(:p_param);
+    RETURN result;
+END;
+$$;
+```
+
+**Key requirements**:
+- Use `CREATE PROCEDURE`, not `CREATE FUNCTION`
+- Use `EXECUTE AS CALLER` for proper privilege flow
+- Prefix parameters with `p_` to avoid column name collisions
+- Reference parameters with colon prefix (`:p_param`) inside SQL statements
+- Use `DECLARE`/`BEGIN`/`END` block with `$$` delimiters
+
+### Generic Tool YAML Configuration
+
+```yaml
+tools:
+  - tool_spec:
+      type: "generic"
+      name: "ToolName"
+      description: "What this tool does"
+      input_schema:
+        type: "object"
+        properties:
+          p_param_name:
+            type: "string"
+            description: "Description of the parameter"
+        required: ["p_param_name"]
+
+tool_resources:
+  ToolName:
+    type: "procedure"
+    identifier: "DB.SCHEMA.PROCEDURE_NAME"
+    execution_environment:
+      type: "warehouse"
+      warehouse: "COMPUTE_WH"
+```
 
 ### DATA_AGENT_RUN (JSON Message Format)
 
@@ -136,22 +205,6 @@ for item in resp.get("content", []):
         print(item["text"])
 ```
 
-### Cortex Search - Use SEARCH_PREVIEW with FLATTEN
-
-```sql
-SELECT 
-  r.value:product_name::STRING AS product_name,
-  r.value:content::STRING AS content
-FROM TABLE(FLATTEN(
-  PARSE_JSON(
-    SNOWFLAKE.CORTEX.SEARCH_PREVIEW(
-      'DB.SCHEMA.SEARCH_SERVICE',
-      '{"query": "search text", "columns": ["content"], "limit": 3}'
-    )
-  )['results']
-)) r;
-```
-
 ---
 
 ## Teaching Philosophy
@@ -161,6 +214,7 @@ FROM TABLE(FLATTEN(
 3. **Verify understanding** - After each major concept, ask if the user has questions
 4. **Show results** - Always show and explain output
 5. **Full SQL approach** - Create agents with complete specs including tools via `FROM SPECIFICATION`
+6. **Test each component** - Verify procedures work before wiring them into the agent
 
 ## Starting the Tutorial
 
@@ -168,14 +222,15 @@ When the user invokes this skill:
 
 1. **Welcome the user** with this introduction:
 
-   > This tutorial teaches you to build a Cortex Agent using standard SQL -- no Python or external tools required. You'll define semantic views that codify which tables to join and how to aggregate them, then wrap that knowledge into an agent that translates natural language questions into correct queries. The result is a self-serve data agent that handles repetitive questions from stakeholders, freeing you to focus on higher-value analysis.
+   > This advanced tutorial teaches you to build a multi-tool Cortex Agent that combines structured data queries, document search, AND custom business logic -- all via standard SQL. You'll create stored procedures that the agent can call as tools, giving it the ability to check inventory, calculate prices with bulk discounts, and generate product summaries. The result is a powerful 5-tool agent that handles complex business questions end-to-end.
 
    Then explain what they'll learn:
-   - How Cortex Agents orchestrate across structured and unstructured data
+   - How Cortex Agents orchestrate across structured data, unstructured docs, and custom logic
    - Creating semantic views (SQL syntax)
    - Building Cortex Search services for RAG
-   - Creating agents with full tool configuration via SQL
-   - Testing with DATA_AGENT_RUN and Python response parsing
+   - Writing stored procedures as custom agent tools
+   - Creating agents with 5 tools fully configured via SQL
+   - Testing all tools with Python response parsing
    - Using Snowflake Intelligence as a chat UI for the agent
 
 2. **Set up environment**:
@@ -190,7 +245,7 @@ When the user invokes this skill:
 
 3. **Confirm readiness** - Ask if they're ready to begin
 
-## Lesson Structure (6 Sections)
+## Lesson Structure (8 Sections)
 
 | Section | Topic | What They'll Build |
 |---------|-------|-------------------|
@@ -198,10 +253,12 @@ When the user invokes this skill:
 | 2 | Sample Data | Sales, inventory, and product docs tables |
 | 3 | Semantic View | Build semantic model for Cortex Analyst |
 | 4 | Cortex Search | Create search service for RAG |
-| 5 | Cortex Agent | Create agent with tools, test with Python parsing |
-| 6 | Snowflake Intelligence | Use the agent via Snowsight chat UI |
+| 5 | Custom Tool Procedures | Create 3 stored procedures for custom business logic |
+| 6 | Build the Agent | Create 5-tool agent with full YAML spec |
+| 7 | Test All Tools | Test each tool type with Python parsing |
+| 8 | Snowflake Intelligence | Use the agent via Snowsight chat UI |
 
-After Section 6, show a Summary of what was built and provide optional Cleanup SQL.
+After Section 8, show a Summary of what was built and provide optional Cleanup SQL.
 
 ## Tool Types (Configured in Agent YAML Spec)
 
@@ -209,11 +266,13 @@ After Section 6, show a Summary of what was built and provide optional Cleanup S
 |------|------|---------|
 | `Analyst` | cortex_analyst_text_to_sql | SQL on structured data via semantic view |
 | `Search` | cortex_search | Search unstructured docs via search service |
+| `InventoryLookup` | generic (procedure) | Check product stock levels |
+| `PriceCalculator` | generic (procedure) | Calculate pricing with bulk discounts |
+| `ProductSummary` | generic (procedure) | Quick product performance overview |
 
-For advanced use cases, agents also support:
-- `generic` - Custom stored procedures
-- `web_search` - External web search
-- `data_to_chart` - Auto-generate visualizations
+For additional advanced use cases, agents also support:
+- `web_search` - External web search (requires account-level enablement)
+- `data_to_chart` - Auto-generate Vega-Lite visualizations
 
 ## tool_resources Configuration
 
@@ -237,6 +296,18 @@ tool_resources:
     max_results: "3"
 ```
 
+### Generic (Custom Procedure)
+
+```yaml
+tool_resources:
+  InventoryLookup:
+    type: "procedure"
+    identifier: "DB.SCHEMA.CHECK_INVENTORY_PROC"
+    execution_environment:
+      type: "warehouse"
+      warehouse: "COMPUTE_WH"
+```
+
 ## Common Errors to Prevent
 
 | Error | Cause | Fix |
@@ -245,7 +316,8 @@ tool_resources:
 | Wrong semantic view syntax | Used YAML | Use SQL clauses: TABLES, DIMENSIONS, METRICS |
 | `CREATE CORTEX AGENT` | Wrong command | Use `CREATE AGENT` |
 | "Query produced no results" | DDL statement | Expected! Use SHOW AGENTS to verify |
-| `!SEARCH` not found | Not available | Use `SEARCH_PREVIEW` with `FLATTEN` |
+| Custom tools not visible in UI | Created UDFs instead of procedures | Use `CREATE PROCEDURE`, not `CREATE FUNCTION` |
+| `invalid identifier` in UDF | Parameter name collision | Use `p_` prefixed params in procedures |
 | Can't see thinking/SQL in response | Using raw SQL output | Parse response with Python `json.loads()` |
 
 ## Snowflake Intelligence
@@ -277,32 +349,23 @@ When the user asks a question:
 ## Key Concepts to Reinforce
 
 ### Agents Are Orchestrators
-Cortex Agents plan tasks, select the right tool for each subtask, and combine results.
+Cortex Agents plan tasks, select the right tool for each subtask, and combine results. With 5 tools, the agent handles diverse question types automatically.
 
 ### Full Agent Spec via SQL
-`CREATE AGENT ... FROM SPECIFICATION $$yaml$$` supports tools, tool_resources, instructions, models, and orchestration budgets -- all inline in the YAML spec.
+`CREATE AGENT ... FROM SPECIFICATION $$yaml$$` supports tools, tool_resources, instructions, models, and orchestration budgets -- all inline in the YAML spec. No UI configuration required.
 
-### execution_environment is Required for Analyst
-The Cortex Analyst tool MUST have `execution_environment` with `type: "warehouse"` and `warehouse: "WH_NAME"` in `tool_resources`. A bare `warehouse:` key silently fails.
+### Custom Tools = Stored Procedures
+Custom agent tools MUST be stored procedures (not UDFs). Use `p_` prefixed parameters, `EXECUTE AS CALLER`, and `DECLARE`/`BEGIN`/`END` blocks. In the agent YAML, configure them as `type: "generic"` with `input_schema` and `tool_resources` pointing to the procedure.
 
-### Cortex Search - Use SEARCH_PREVIEW
-The `!SEARCH` table function may not be available. Use `SEARCH_PREVIEW` + `FLATTEN` instead.
-
-### Semantic Views Use SQL Syntax
-```sql
-TABLES (...) DIMENSIONS (...) METRICS (...)
-```
-NOT embedded YAML!
-
-### DDL Returns No Results
-`CREATE AGENT`, `CREATE SEMANTIC VIEW` show "Query produced no results" - this is **expected**. Use `SHOW` commands to verify.
+### execution_environment is Required
+Both Cortex Analyst tools AND custom (generic) tools require `execution_environment` with `type: "warehouse"` and `warehouse: "WH_NAME"` in `tool_resources`.
 
 ### Python Parsing for Agent Responses
 Use `json.loads()` on the `DATA_AGENT_RUN` result to extract thinking, tool calls, generated SQL, result sets, and final answers. Raw SQL output truncates or hides these details.
 
 ## Reference Materials
 
-- `references/LESSONS.md` - All SQL code (TESTED, WORKING)
+- `references/LESSONS.md` - All SQL and Python code (TESTED, WORKING)
 - `references/TOOLS_GUIDE.md` - Tool configuration reference
 - `references/TROUBLESHOOTING.md` - Common errors and fixes
 - `references/FAQ.md` - Quick answers

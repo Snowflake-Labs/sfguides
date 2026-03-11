@@ -1,9 +1,9 @@
-# Cortex Agents Tutorial - Lesson SQL Reference
+# Cortex Agents with Custom Tools Tutorial - Lesson SQL Reference
 
 This file contains all SQL and Python code for the tutorial, organized by section. Execute each section step-by-step, explaining as you go.
 
 **IMPORTANT**: This file contains TESTED, WORKING syntax as of March 2026.
-**NOTE**: `CREATE AGENT ... FROM SPECIFICATION $$yaml$$` supports full tool configuration inline, including `tools`, `tool_resources`, and `execution_environment`.
+**NOTE**: `CREATE AGENT ... FROM SPECIFICATION $$yaml$$` supports full tool configuration inline, including `tools`, `tool_resources`, `execution_environment`, and custom tool `input_schema`.
 
 ---
 
@@ -190,17 +190,6 @@ SELECT * FROM SEMANTIC_VIEW(
 ORDER BY total_sales DESC;
 ```
 
-### Step 3.4: Quick Cortex Analyst Demo
-
-Test Cortex Analyst independently before wiring it into the agent:
-
-```sql
-SELECT SNOWFLAKE.CORTEX.COMPLETE(
-    'claude-4-sonnet',
-    'Given a sales table with columns: product_name, category, region, quantity, unit_price, total_amount, customer_segment - write a SQL query to find total sales by region. Return ONLY the SQL.'
-);
-```
-
 ---
 
 ## Section 4: Create Cortex Search Service
@@ -247,37 +236,128 @@ FROM TABLE(FLATTEN(
 )) r;
 ```
 
-### Step 4.4: Quick RAG Demo
+---
 
-Show how Cortex Search results feed into an LLM for a complete RAG pipeline:
+## Section 5: Create Custom Tool Procedures
+
+**Learning Objective**: Build stored procedures that the agent can call as custom tools for inventory checks, price calculations, and product summaries.
+
+### Why Stored Procedures?
+
+Custom agent tools MUST be stored procedures (`CREATE PROCEDURE`), NOT UDFs (`CREATE FUNCTION`). Key requirements:
+- `EXECUTE AS CALLER` for proper privilege flow
+- `p_` prefixed parameters to avoid column name collisions
+- Colon prefix (`:p_param`) when referencing parameters inside SQL
+- `DECLARE`/`BEGIN`/`END` block with `$$` delimiters
+
+### Step 5.1: Create Inventory Lookup Procedure
 
 ```sql
-SELECT SNOWFLAKE.CORTEX.COMPLETE(
-    'claude-4-sonnet',
-    'Based on this documentation, how do I fix laptop overheating? Documentation: ' ||
-    (SELECT LISTAGG(r.value:content::STRING, ' | ') 
-     FROM TABLE(FLATTEN(
-       PARSE_JSON(
-         SNOWFLAKE.CORTEX.SEARCH_PREVIEW(
-           'CORTEX_AGENTS_LAB.TUTORIAL.PRODUCT_SEARCH_SERVICE',
-           '{"query": "laptop overheating", "columns": ["content"], "limit": 2}'
-         )
-       )['results']
-     )) r)
-);
+CREATE OR REPLACE PROCEDURE check_inventory_proc(p_product_name VARCHAR)
+RETURNS VARCHAR
+LANGUAGE SQL
+EXECUTE AS CALLER
+AS
+$$
+DECLARE
+    result VARCHAR;
+BEGIN
+    SELECT TO_VARCHAR(quantity_in_stock) || ' units in stock (reorder level: ' || TO_VARCHAR(reorder_level) || ')'
+      INTO :result
+    FROM CORTEX_AGENTS_LAB.TUTORIAL.INVENTORY
+    WHERE UPPER(product_name) = UPPER(:p_product_name);
+    RETURN result;
+END;
+$$;
+```
+
+### Step 5.2: Create Price Calculator Procedure
+
+```sql
+CREATE OR REPLACE PROCEDURE calculate_price_proc(p_product_name VARCHAR, p_quantity NUMBER)
+RETURNS VARCHAR
+LANGUAGE SQL
+EXECUTE AS CALLER
+AS
+$$
+DECLARE
+    result VARCHAR;
+BEGIN
+    SELECT 
+        'Unit price: $' || TO_VARCHAR(unit_price, '999,999.99') ||
+        ' | Quantity: ' || TO_VARCHAR(:p_quantity) ||
+        ' | Discount: ' || TO_VARCHAR(
+            CASE 
+                WHEN :p_quantity >= 100 THEN 15
+                WHEN :p_quantity >= 50 THEN 10
+                WHEN :p_quantity >= 10 THEN 5
+                ELSE 0
+            END
+        ) || '%' ||
+        ' | Total: $' || TO_VARCHAR(
+            unit_price * :p_quantity * (1 - 
+                CASE 
+                    WHEN :p_quantity >= 100 THEN 0.15
+                    WHEN :p_quantity >= 50 THEN 0.10
+                    WHEN :p_quantity >= 10 THEN 0.05
+                    ELSE 0
+                END
+            ), '999,999.99')
+      INTO :result
+    FROM CORTEX_AGENTS_LAB.TUTORIAL.SALES
+    WHERE UPPER(product_name) = UPPER(:p_product_name)
+    LIMIT 1;
+    RETURN result;
+END;
+$$;
+```
+
+### Step 5.3: Create Product Summary Procedure
+
+```sql
+CREATE OR REPLACE PROCEDURE get_product_summary_proc(p_product_name VARCHAR)
+RETURNS VARCHAR
+LANGUAGE SQL
+EXECUTE AS CALLER
+AS
+$$
+DECLARE
+    result VARCHAR;
+BEGIN
+    SELECT 
+        'Product: ' || :p_product_name || 
+        ' | Total Revenue: $' || TO_VARCHAR(SUM(total_amount), '999,999.99') ||
+        ' | Units Sold: ' || TO_VARCHAR(SUM(quantity)) ||
+        ' | Avg Price: $' || TO_VARCHAR(AVG(unit_price), '999.99')
+      INTO :result
+    FROM CORTEX_AGENTS_LAB.TUTORIAL.SALES
+    WHERE UPPER(product_name) = UPPER(:p_product_name);
+    RETURN result;
+END;
+$$;
+```
+
+### Step 5.4: Verify Procedures Work
+
+Before wiring into the agent, confirm each procedure returns correct results:
+
+```sql
+CALL check_inventory_proc('Standing Desk');
+CALL calculate_price_proc('Laptop Pro', 50);
+CALL get_product_summary_proc('Laptop Pro');
 ```
 
 ---
 
-## Section 5: Build the Cortex Agent
+## Section 6: Build the 5-Tool Agent
 
-**Learning Objective**: Create a Cortex Agent with full tool configuration via SQL and test it.
+**Learning Objective**: Create a Cortex Agent with all 5 tools configured via SQL.
 
-### Step 5.1: Create the Agent
+### Step 6.1: Create the Agent
 
 ```sql
-CREATE OR REPLACE AGENT tutorial_agent
-  COMMENT = 'Tutorial agent that routes questions to Analyst (structured) or Search (unstructured)'
+CREATE OR REPLACE AGENT sales_assistant
+  COMMENT = 'AI assistant with 5 tools: Analyst, Search, InventoryLookup, PriceCalculator, ProductSummary'
   FROM SPECIFICATION $$
 models:
   orchestration: claude-4-sonnet
@@ -286,18 +366,65 @@ orchestration:
     seconds: 30
     tokens: 16000
 instructions:
-  system: "You are a helpful assistant for a retail business. You can answer questions about sales data and product documentation."
-  orchestration: "Use Analyst for any question about sales, revenue, quantities, or metrics. Use Search for product documentation, troubleshooting, or how-to questions."
-  response: "Be concise and include relevant numbers or details from the tools."
+  system: |
+    You are Sales Assistant, an AI-powered sales intelligence assistant for a retail business.
+    You can answer questions about sales data, product documentation, inventory levels, pricing, and product performance.
+  orchestration: |
+    For sales metrics, revenue, trends, or regional comparisons: Use Analyst
+    For product documentation, troubleshooting, or how-to questions: Use Search
+    For stock levels or inventory availability: Use InventoryLookup
+    For pricing quotes or bulk discount calculations: Use PriceCalculator
+    For quick product performance overviews: Use ProductSummary
+    If a question spans multiple areas, use the most relevant tools and combine results.
+  response: |
+    Be concise and professional.
+    Lead with the direct answer, then provide supporting details.
+    Include relevant numbers with units and currency symbols.
 tools:
   - tool_spec:
       type: "cortex_analyst_text_to_sql"
       name: "Analyst"
-      description: "Queries structured sales data by converting natural language to SQL"
+      description: "Queries structured sales data by converting natural language to SQL. Covers revenue, quantities, products, regions, and customer segments."
   - tool_spec:
       type: "cortex_search"
       name: "Search"
-      description: "Searches product documentation and troubleshooting guides"
+      description: "Searches product documentation for specifications, troubleshooting guides, assembly instructions, and care information."
+  - tool_spec:
+      type: "generic"
+      name: "InventoryLookup"
+      description: "Checks current stock levels and reorder status for a specific product."
+      input_schema:
+        type: "object"
+        properties:
+          p_product_name:
+            type: "string"
+            description: "The product name to check inventory for"
+        required: ["p_product_name"]
+  - tool_spec:
+      type: "generic"
+      name: "PriceCalculator"
+      description: "Calculates pricing with bulk discounts. Discounts: 5% for 10+ units, 10% for 50+, 15% for 100+."
+      input_schema:
+        type: "object"
+        properties:
+          p_product_name:
+            type: "string"
+            description: "The product name to price"
+          p_quantity:
+            type: "number"
+            description: "The quantity to calculate pricing for"
+        required: ["p_product_name", "p_quantity"]
+  - tool_spec:
+      type: "generic"
+      name: "ProductSummary"
+      description: "Provides a quick overview of a product's sales performance including total revenue, units sold, and average price."
+      input_schema:
+        type: "object"
+        properties:
+          p_product_name:
+            type: "string"
+            description: "The product name to summarize"
+        required: ["p_product_name"]
 tool_resources:
   Analyst:
     semantic_view: "CORTEX_AGENTS_LAB.TUTORIAL.SALES_SEMANTIC_VIEW"
@@ -307,18 +434,54 @@ tool_resources:
   Search:
     name: "CORTEX_AGENTS_LAB.TUTORIAL.PRODUCT_SEARCH_SERVICE"
     max_results: "3"
+  InventoryLookup:
+    type: "procedure"
+    identifier: "CORTEX_AGENTS_LAB.TUTORIAL.CHECK_INVENTORY_PROC"
+    execution_environment:
+      type: "warehouse"
+      warehouse: "COMPUTE_WH"
+  PriceCalculator:
+    type: "procedure"
+    identifier: "CORTEX_AGENTS_LAB.TUTORIAL.CALCULATE_PRICE_PROC"
+    execution_environment:
+      type: "warehouse"
+      warehouse: "COMPUTE_WH"
+  ProductSummary:
+    type: "procedure"
+    identifier: "CORTEX_AGENTS_LAB.TUTORIAL.GET_PRODUCT_SUMMARY_PROC"
+    execution_environment:
+      type: "warehouse"
+      warehouse: "COMPUTE_WH"
 $$;
 ```
 
-**CRITICAL**: The `execution_environment` block under `Analyst` is required. Without it (or using a bare `warehouse:` key), the agent will create successfully but `DATA_AGENT_RUN` will fail with error 399504: "The Analyst tool is missing an execution environment."
+**CRITICAL**: The `execution_environment` block is required for BOTH Analyst AND custom (generic) tools. Without it, `DATA_AGENT_RUN` fails with error 399504.
 
-### Step 5.2: Verify
+### Step 6.2: Verify
 
 ```sql
 SHOW AGENTS;
 ```
 
-### Step 5.3: Test Agent - Structured Data Question (Python)
+---
+
+## Section 7: Test All Tools
+
+**Learning Objective**: Run queries that exercise each tool and observe the agent's orchestration.
+
+### Understanding DATA_AGENT_RUN
+
+```
+CREATE AGENT       = Builds the agent (brain + instructions + tools)
+DATA_AGENT_RUN     = Sends it a message and gets back the answer
+```
+
+You don't tell the agent which tool to use. The agent figures that out from:
+1. Your question's intent
+2. The orchestration instructions (Section 6)
+3. The tool descriptions
+
+### Step 7.1: Test Analyst - Sales Analysis (Python)
 
 ```python
 import json
@@ -326,17 +489,15 @@ from snowflake.snowpark.context import get_active_session
 
 session = get_active_session()
 
-# Run the agent with a structured data question
 result = session.sql("""
   SELECT SNOWFLAKE.CORTEX.DATA_AGENT_RUN(
-    'CORTEX_AGENTS_LAB.TUTORIAL.TUTORIAL_AGENT',
-    $${"messages": [{"role": "user", "content": [{"type": "text", "text": "What are total sales by region?"}]}]}$$
+    'CORTEX_AGENTS_LAB.TUTORIAL.SALES_ASSISTANT',
+    $${"messages": [{"role": "user", "content": [{"type": "text", "text": "What are the total sales by region?"}]}]}$$
   ) AS resp
 """).collect()
 
 resp = json.loads(result[0]["RESP"])
 
-# Parse and display each content item
 for item in resp.get("content", []):
     item_type = item.get("type")
 
@@ -374,15 +535,14 @@ for item in resp.get("content", []):
         print()
 ```
 
-**Explain**: This Python parsing extracts the full agent response including thinking, the generated SQL query, result data, and the final answer. Raw SQL output would truncate or hide most of this.
+**Expected**: Agent uses Analyst tool, generates SQL, returns sales by region.
 
-### Step 5.4: Test Agent - Documentation Question (Python)
+### Step 7.2: Test Search - Documentation (Python)
 
 ```python
-# Run the agent with a documentation question
 result = session.sql("""
   SELECT SNOWFLAKE.CORTEX.DATA_AGENT_RUN(
-    'CORTEX_AGENTS_LAB.TUTORIAL.TUTORIAL_AGENT',
+    'CORTEX_AGENTS_LAB.TUTORIAL.SALES_ASSISTANT',
     $${"messages": [{"role": "user", "content": [{"type": "text", "text": "How do I fix laptop overheating?"}]}]}$$
   ) AS resp
 """).collect()
@@ -412,25 +572,156 @@ for item in resp.get("content", []):
         print()
 ```
 
+**Expected**: Agent uses Search tool, retrieves troubleshooting docs.
+
+### Step 7.3: Test InventoryLookup (Python)
+
+```python
+result = session.sql("""
+  SELECT SNOWFLAKE.CORTEX.DATA_AGENT_RUN(
+    'CORTEX_AGENTS_LAB.TUTORIAL.SALES_ASSISTANT',
+    $${"messages": [{"role": "user", "content": [{"type": "text", "text": "How many Standing Desks do we have in stock?"}]}]}$$
+  ) AS resp
+""").collect()
+
+resp = json.loads(result[0]["RESP"])
+
+for item in resp.get("content", []):
+    item_type = item.get("type")
+
+    if item_type == "thinking":
+        print("=== THINKING ===")
+        print(item["thinking"]["text"])
+        print()
+
+    elif item_type == "tool_use":
+        print(f"=== TOOL CALL: {item['tool_use'].get('name', '')} ===")
+        print()
+
+    elif item_type == "tool_result":
+        tr = item["tool_result"]
+        print(f"=== TOOL RESULT: {tr.get('name', '')} ===")
+        for c in tr.get("content", []):
+            if "json" in c:
+                print(json.dumps(c["json"], indent=2))
+            elif "text" in c:
+                print(c["text"])
+        print()
+
+    elif item_type == "text":
+        print("=== ANSWER ===")
+        print(item["text"])
+        print()
+```
+
+**Expected**: Agent uses InventoryLookup tool, returns "30 units in stock (reorder level: 15)".
+
+### Step 7.4: Test PriceCalculator (Python)
+
+```python
+result = session.sql("""
+  SELECT SNOWFLAKE.CORTEX.DATA_AGENT_RUN(
+    'CORTEX_AGENTS_LAB.TUTORIAL.SALES_ASSISTANT',
+    $${"messages": [{"role": "user", "content": [{"type": "text", "text": "What would 50 Laptop Pro units cost with bulk discount?"}]}]}$$
+  ) AS resp
+""").collect()
+
+resp = json.loads(result[0]["RESP"])
+
+for item in resp.get("content", []):
+    item_type = item.get("type")
+
+    if item_type == "thinking":
+        print("=== THINKING ===")
+        print(item["thinking"]["text"])
+        print()
+
+    elif item_type == "tool_use":
+        print(f"=== TOOL CALL: {item['tool_use'].get('name', '')} ===")
+        print()
+
+    elif item_type == "tool_result":
+        tr = item["tool_result"]
+        print(f"=== TOOL RESULT: {tr.get('name', '')} ===")
+        for c in tr.get("content", []):
+            if "json" in c:
+                print(json.dumps(c["json"], indent=2))
+            elif "text" in c:
+                print(c["text"])
+        print()
+
+    elif item_type == "text":
+        print("=== ANSWER ===")
+        print(item["text"])
+        print()
+```
+
+**Expected**: Agent uses PriceCalculator tool, returns pricing with 10% discount for 50 units.
+
+### Step 7.5: Test ProductSummary (Python)
+
+```python
+result = session.sql("""
+  SELECT SNOWFLAKE.CORTEX.DATA_AGENT_RUN(
+    'CORTEX_AGENTS_LAB.TUTORIAL.SALES_ASSISTANT',
+    $${"messages": [{"role": "user", "content": [{"type": "text", "text": "Give me a quick summary of Standing Desk performance"}]}]}$$
+  ) AS resp
+""").collect()
+
+resp = json.loads(result[0]["RESP"])
+
+for item in resp.get("content", []):
+    item_type = item.get("type")
+
+    if item_type == "thinking":
+        print("=== THINKING ===")
+        print(item["thinking"]["text"])
+        print()
+
+    elif item_type == "tool_use":
+        print(f"=== TOOL CALL: {item['tool_use'].get('name', '')} ===")
+        print()
+
+    elif item_type == "tool_result":
+        tr = item["tool_result"]
+        print(f"=== TOOL RESULT: {tr.get('name', '')} ===")
+        for c in tr.get("content", []):
+            if "json" in c:
+                print(json.dumps(c["json"], indent=2))
+            elif "text" in c:
+                print(c["text"])
+        print()
+
+    elif item_type == "text":
+        print("=== ANSWER ===")
+        print(item["text"])
+        print()
+```
+
+**Expected**: Agent uses ProductSummary tool, returns revenue, units sold, avg price for Standing Desk.
+
 ---
 
-## Section 6: Use with Snowflake Intelligence
+## Section 8: Use with Snowflake Intelligence
 
 **Learning Objective**: Interact with the agent via Snowflake Intelligence chat UI.
 
-Now that you've created the `tutorial_agent` object, you can chat with it directly in **Snowflake Intelligence** -- no extra code needed.
+Now that you've created the `sales_assistant` agent with 5 tools, you can chat with it directly in **Snowflake Intelligence** -- no extra code needed.
 
 **To try it:**
 1. In Snowsight, go to **AI & ML > Snowflake Intelligence**
-2. Select `TUTORIAL_AGENT` from the agent picker in the chat bar
-3. Ask any question -- the agent routes to Analyst or Search automatically
+2. Select `SALES_ASSISTANT` from the agent picker in the chat bar
+3. Ask any question -- the agent routes to the appropriate tool automatically
    - Try **"What are total sales by region?"** (routes to Cortex Analyst)
    - Try **"How do I assemble the standing desk?"** (routes to Cortex Search)
+   - Try **"How many Laptop Pro units are in stock?"** (routes to InventoryLookup)
+   - Try **"What would 100 Office Chairs cost?"** (routes to PriceCalculator)
+   - Try **"Summarize Laptop Pro performance"** (routes to ProductSummary)
 
 Snowflake Intelligence gives you a built-in chat interface with:
 - **Streaming responses** -- see the agent's thinking and tool calls in real time
 - **Multi-turn conversations** -- ask follow-up questions that build on previous context
-- **Tool call visibility** -- see which tool the agent chose and the generated SQL or search results
+- **Tool call visibility** -- see which tool the agent chose and the results
 
 This is the fastest way to interact with the agent you just built. For a custom UI, you can build a Streamlit app on top of the same agent using the `DATA_AGENT_RUN` SQL function or the Cortex Agents REST API.
 
@@ -444,18 +735,32 @@ What you built in this tutorial:
 |-----------|-------------|
 | **Semantic View** | Defines the schema for natural language to SQL translation |
 | **Cortex Search Service** | Indexes product docs for semantic retrieval |
-| **Cortex Agent** | Orchestrates between Analyst and Search tools |
+| **3 Stored Procedures** | Custom business logic (inventory, pricing, summaries) |
+| **5-Tool Cortex Agent** | Orchestrates across Analyst, Search, and 3 custom tools |
 | **Python Parsing** | Extracts thinking, SQL, results, and answers from agent responses |
 | **Snowflake Intelligence** | Chat UI for interacting with the agent |
+
+### Tool Routing Summary
+
+| Question Type | Tool Used |
+|--------------|-----------|
+| Sales metrics, revenue, trends | Analyst (Cortex Analyst) |
+| Product documentation, troubleshooting | Search (Cortex Search) |
+| Stock levels, inventory | InventoryLookup (Custom) |
+| Pricing quotes, bulk discounts | PriceCalculator (Custom) |
+| Product performance overview | ProductSummary (Custom) |
 
 ---
 
 ## Cleanup (Only if requested)
 
 ```sql
-DROP AGENT IF EXISTS tutorial_agent;
+DROP AGENT IF EXISTS sales_assistant;
 DROP CORTEX SEARCH SERVICE IF EXISTS product_search_service;
 DROP SEMANTIC VIEW IF EXISTS sales_semantic_view;
+DROP PROCEDURE IF EXISTS check_inventory_proc(VARCHAR);
+DROP PROCEDURE IF EXISTS calculate_price_proc(VARCHAR, NUMBER);
+DROP PROCEDURE IF EXISTS get_product_summary_proc(VARCHAR);
 DROP TABLE IF EXISTS sales;
 DROP TABLE IF EXISTS inventory;
 DROP TABLE IF EXISTS product_docs;
@@ -469,10 +774,11 @@ DROP TABLE IF EXISTS product_docs;
 
 | Practice | Implementation |
 |----------|---------------|
-| **Descriptive Tool Names** | `Analyst`, `Search` -- clear purpose |
+| **Descriptive Tool Names** | `Analyst`, `Search`, `InventoryLookup` -- clear purpose |
 | **Tool Descriptions** | Include what data the tool accesses and when to use it |
 | **Instructions** | `system` + `orchestration` + `response` keys |
-| **execution_environment** | Required for Analyst: `{type: warehouse, warehouse: WH}` |
+| **execution_environment** | Required for Analyst AND custom tools |
+| **Procedure Parameters** | Prefix with `p_`, reference with colon (`:p_param`) |
 | **Python Parsing** | Use `json.loads()` to extract full response details |
 
 ## Tool Type Reference
@@ -481,6 +787,6 @@ DROP TABLE IF EXISTS product_docs;
 |------|---------|---------|
 | `cortex_analyst_text_to_sql` | SQL on structured data | Analyst |
 | `cortex_search` | Search unstructured docs | Search |
-| `generic` | Custom procedures | InventoryLookup |
+| `generic` | Custom procedures | InventoryLookup, PriceCalculator |
 | `web_search` | External WWW search | WebSearch |
 | `data_to_chart` | Auto-generate visualizations | DataToChart |

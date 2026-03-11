@@ -162,22 +162,35 @@ tool_resources:
 
 ## Custom Tools (Generic)
 
-**IMPORTANT**: Custom agent tools require **stored procedures**, not UDFs. The Snowsight UI custom tools picker only lists procedures. For inline YAML specs, use the `function` key.
+**IMPORTANT**: Custom agent tools require **stored procedures**, not UDFs. The Snowsight UI custom tools picker only lists procedures.
 
-### Inline YAML Configuration
+### Stored Procedure Requirements
+
+1. Use `CREATE PROCEDURE`, not `CREATE FUNCTION`
+2. Use `EXECUTE AS CALLER` for proper privilege flow
+3. Prefix parameters with `p_` to avoid column name collisions
+4. Reference parameters with colon prefix (`:p_product_name`) inside SQL
+5. Use `DECLARE`/`BEGIN`/`END` block with `$$` delimiters
+6. Return `VARCHAR` with a human-readable result string
+
+### YAML Configuration for Generic Tools
+
+Each generic tool needs:
+- **`tool_spec`**: `type: "generic"`, `name`, `description`, and `input_schema`
+- **`tool_resources`**: `type: "procedure"`, `identifier`, and `execution_environment`
 
 ```yaml
 tools:
   - tool_spec:
       type: "generic"
       name: "InventoryLookup"
-      description: "Check product stock levels"
+      description: "Checks current stock levels for a given product"
       input_schema:
         type: "object"
         properties:
           p_product_name:
             type: "string"
-            description: "The product name to check"
+            description: "The product name to check inventory for"
         required: ["p_product_name"]
 
 tool_resources:
@@ -189,8 +202,28 @@ tool_resources:
       warehouse: "COMPUTE_WH"
 ```
 
-### Creating the Procedure
+### input_schema Reference
 
+The `input_schema` follows JSON Schema format:
+
+```yaml
+input_schema:
+  type: "object"
+  properties:
+    param1:
+      type: "string"          # string, number, integer, boolean
+      description: "What this parameter is"
+    param2:
+      type: "number"
+      description: "Another parameter"
+  required: ["param1"]        # List of required parameters
+```
+
+**Parameter names in `input_schema` must match procedure parameter names exactly.**
+
+### Example Procedures
+
+**Single parameter (inventory check):**
 ```sql
 CREATE OR REPLACE PROCEDURE check_inventory_proc(p_product_name VARCHAR)
 RETURNS VARCHAR
@@ -201,7 +234,7 @@ $$
 DECLARE
     result VARCHAR;
 BEGIN
-    SELECT TO_VARCHAR(quantity_in_stock) || ' units in stock'
+    SELECT 'Product: ' || product_name || ', Stock: ' || TO_VARCHAR(quantity_in_stock) || ' units'
       INTO :result
     FROM CORTEX_AGENTS_LAB.TUTORIAL.INVENTORY
     WHERE UPPER(product_name) = UPPER(:p_product_name);
@@ -210,12 +243,42 @@ END;
 $$;
 ```
 
-**Key requirements**:
-- Use `CREATE PROCEDURE`, not `CREATE FUNCTION`
-- Use `EXECUTE AS CALLER` for proper privilege flow
-- Prefix parameters with `p_` to avoid column name collisions
-- Reference parameters with colon prefix (`:p_product_name`) inside SQL
-- Use `DECLARE`/`BEGIN`/`END` block with `$$` delimiters
+**Multiple parameters (price calculator):**
+```sql
+CREATE OR REPLACE PROCEDURE calculate_price_proc(p_product_name VARCHAR, p_quantity NUMBER)
+RETURNS VARCHAR
+LANGUAGE SQL
+EXECUTE AS CALLER
+AS
+$$
+DECLARE
+    base_price NUMBER(10,2);
+    discount NUMBER(5,2);
+    result VARCHAR;
+BEGIN
+    SELECT unit_price INTO :base_price
+    FROM CORTEX_AGENTS_LAB.TUTORIAL.INVENTORY
+    WHERE UPPER(product_name) = UPPER(:p_product_name);
+
+    IF (:p_quantity >= 100) THEN
+        discount := 15.0;
+    ELSEIF (:p_quantity >= 50) THEN
+        discount := 10.0;
+    ELSEIF (:p_quantity >= 10) THEN
+        discount := 5.0;
+    ELSE
+        discount := 0.0;
+    END IF;
+
+    LET total NUMBER(10,2) := :base_price * :p_quantity * (1 - :discount/100);
+    result := 'Product: ' || :p_product_name || ', Qty: ' || TO_VARCHAR(:p_quantity) ||
+              ', Unit Price: $' || TO_VARCHAR(:base_price) ||
+              ', Discount: ' || TO_VARCHAR(:discount) || '%' ||
+              ', Total: $' || TO_VARCHAR(:total);
+    RETURN result;
+END;
+$$;
+```
 
 ---
 
@@ -259,6 +322,9 @@ instructions:
   orchestration: |
     Use Analyst for any question about sales, revenue, quantities, or metrics.
     Use Search for product documentation, troubleshooting, or how-to questions.
+    Use InventoryLookup for stock level checks.
+    Use PriceCalculator for pricing quotes with bulk discounts.
+    Use ProductSummary for quick product performance overviews.
   response: |
     Be concise and include relevant numbers or details from the tools.
     Format currency with dollar signs and commas.
@@ -271,13 +337,13 @@ instructions:
 
 ---
 
-## Complete 2-Tool Agent Example (Tutorial Pattern)
+## Complete 5-Tool Agent Example (Custom Tools Pattern)
 
-This is the working pattern from the tutorial notebook:
+This is the working pattern with Analyst, Search, and 3 custom tools:
 
 ```sql
-CREATE OR REPLACE AGENT tutorial_agent
-  COMMENT = 'Tutorial agent that routes questions to Analyst (structured) or Search (unstructured)'
+CREATE OR REPLACE AGENT sales_assistant
+  COMMENT = 'AI assistant with 5 tools: Analyst, Search, InventoryLookup, PriceCalculator, ProductSummary'
   FROM SPECIFICATION $$
 models:
   orchestration: claude-4-sonnet
@@ -286,9 +352,16 @@ orchestration:
     seconds: 30
     tokens: 16000
 instructions:
-  system: "You are a helpful assistant for a retail business. You can answer questions about sales data and product documentation."
-  orchestration: "Use Analyst for any question about sales, revenue, quantities, or metrics. Use Search for product documentation, troubleshooting, or how-to questions."
-  response: "Be concise and include relevant numbers or details from the tools."
+  system: |
+    You are Sales Assistant, an AI-powered sales intelligence assistant for a retail business.
+  orchestration: |
+    For sales metrics, revenue, trends: Use Analyst
+    For product documentation, troubleshooting: Use Search
+    For stock levels or inventory: Use InventoryLookup
+    For pricing quotes or bulk discounts: Use PriceCalculator
+    For quick product performance overviews: Use ProductSummary
+  response: |
+    Be concise and professional. Lead with the direct answer.
 tools:
   - tool_spec:
       type: "cortex_analyst_text_to_sql"
@@ -298,6 +371,42 @@ tools:
       type: "cortex_search"
       name: "Search"
       description: "Searches product documentation and troubleshooting guides"
+  - tool_spec:
+      type: "generic"
+      name: "InventoryLookup"
+      description: "Checks current stock levels for a given product"
+      input_schema:
+        type: "object"
+        properties:
+          p_product_name:
+            type: "string"
+            description: "The product name to check inventory for"
+        required: ["p_product_name"]
+  - tool_spec:
+      type: "generic"
+      name: "PriceCalculator"
+      description: "Calculates pricing with bulk discounts for a product and quantity"
+      input_schema:
+        type: "object"
+        properties:
+          p_product_name:
+            type: "string"
+            description: "The product name"
+          p_quantity:
+            type: "number"
+            description: "Number of units to price"
+        required: ["p_product_name", "p_quantity"]
+  - tool_spec:
+      type: "generic"
+      name: "ProductSummary"
+      description: "Provides quick overview of product sales performance"
+      input_schema:
+        type: "object"
+        properties:
+          p_product_name:
+            type: "string"
+            description: "The product name to summarize"
+        required: ["p_product_name"]
 tool_resources:
   Analyst:
     semantic_view: "CORTEX_AGENTS_LAB.TUTORIAL.SALES_SEMANTIC_VIEW"
@@ -307,6 +416,24 @@ tool_resources:
   Search:
     name: "CORTEX_AGENTS_LAB.TUTORIAL.PRODUCT_SEARCH_SERVICE"
     max_results: "3"
+  InventoryLookup:
+    type: "procedure"
+    identifier: "CORTEX_AGENTS_LAB.TUTORIAL.CHECK_INVENTORY_PROC"
+    execution_environment:
+      type: "warehouse"
+      warehouse: "COMPUTE_WH"
+  PriceCalculator:
+    type: "procedure"
+    identifier: "CORTEX_AGENTS_LAB.TUTORIAL.CALCULATE_PRICE_PROC"
+    execution_environment:
+      type: "warehouse"
+      warehouse: "COMPUTE_WH"
+  ProductSummary:
+    type: "procedure"
+    identifier: "CORTEX_AGENTS_LAB.TUTORIAL.GET_PRODUCT_SUMMARY_PROC"
+    execution_environment:
+      type: "warehouse"
+      warehouse: "COMPUTE_WH"
 $$;
 ```
 
@@ -318,6 +445,6 @@ $$;
 |-----------|------------------|
 | `cortex_analyst_text_to_sql` | `semantic_view: "DB.SCHEMA.VIEW"` + `execution_environment` |
 | `cortex_search` | `name: "DB.SCHEMA.SERVICE"` + `max_results` |
-| `generic` | `type: procedure`, `identifier`, `execution_environment` |
+| `generic` | `type: procedure`, `identifier`, `execution_environment`, `input_schema` in tool_spec |
 | `web_search` | No tool_resources needed |
 | `data_to_chart` | No tool_resources needed |

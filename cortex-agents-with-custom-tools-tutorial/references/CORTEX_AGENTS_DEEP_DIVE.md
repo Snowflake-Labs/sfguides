@@ -10,7 +10,7 @@ Comprehensive guide to understanding Cortex Agents architecture and concepts.
 
 ```
 User Query
-    ↓
+    |
 ┌─────────────────────────────────────┐
 │         PLANNING PHASE              │
 │  - Parse user intent                │
@@ -18,22 +18,22 @@ User Query
 │  - Select appropriate tools         │
 │  - Break into subtasks if needed    │
 └─────────────────────────────────────┘
-    ↓
+    |
 ┌─────────────────────────────────────┐
 │         EXECUTION PHASE             │
 │  - Call selected tool(s)            │
-│  - Cortex Analyst → SQL generation  │
-│  - Cortex Search → document retrieval│
-│  - Custom tools → procedure calls   │
+│  - Cortex Analyst -> SQL generation │
+│  - Cortex Search -> document retrieval│
+│  - Custom tools -> procedure calls  │
 └─────────────────────────────────────┘
-    ↓
+    |
 ┌─────────────────────────────────────┐
 │         REFLECTION PHASE            │
 │  - Evaluate results                 │
 │  - Decide: enough info? need more?  │
 │  - Loop back or proceed to response │
 └─────────────────────────────────────┘
-    ↓
+    |
 ┌─────────────────────────────────────┐
 │         RESPONSE PHASE              │
 │  - Synthesize findings              │
@@ -47,8 +47,8 @@ User Query
 **User**: "How did Laptop Pro sell last quarter and what are its key specs?"
 
 **Agent thinking**:
-1. This needs sales data (numbers) → Use `sales_data` (Cortex Analyst)
-2. This needs product specs (text) → Use `product_docs` (Cortex Search)
+1. This needs sales data (numbers) -> Use `Analyst` (Cortex Analyst)
+2. This needs product specs (text) -> Use `Search` (Cortex Search)
 3. Plan: Run both tools, then combine results
 
 **Execution**:
@@ -56,6 +56,21 @@ User Query
 2. Cortex Search finds: Laptop Pro specifications document
 
 **Response**: "Laptop Pro generated $71,499.45 in sales last quarter across 55 units. Key specs include a 15.6-inch 4K display, Intel i9 processor, 32GB RAM, and 12-hour battery life."
+
+### Example: Custom Tool Query
+
+**User**: "What's in stock for Laptop Pro and how much would 50 units cost?"
+
+**Agent thinking**:
+1. Stock levels -> Use `InventoryLookup` (custom procedure)
+2. Pricing for 50 units -> Use `PriceCalculator` (custom procedure)
+3. Plan: Run both tools, combine results
+
+**Execution**:
+1. InventoryLookup calls `CHECK_INVENTORY_PROC('Laptop Pro')` -> "Product: Laptop Pro, Stock: 150 units"
+2. PriceCalculator calls `CALCULATE_PRICE_PROC('Laptop Pro', 50)` -> "Product: Laptop Pro, Qty: 50, Unit Price: $1299.99, Discount: 10%, Total: $58,499.55"
+
+**Response**: "Laptop Pro has 150 units in stock. For an order of 50 units at $1,299.99 each, you'd get a 10% bulk discount, bringing the total to $58,499.55."
 
 ---
 
@@ -83,11 +98,11 @@ User Query
 tools:
   - tool_spec:
       type: "cortex_analyst_text_to_sql"
-      name: "my_analyst"
+      name: "Analyst"
       description: "Query sales data for revenue and trends"
 
 tool_resources:
-  my_analyst:
+  Analyst:
     semantic_view: "DB.SCHEMA.SEMANTIC_VIEW"
     execution_environment:
       type: "warehouse"
@@ -118,55 +133,62 @@ tool_resources:
 tools:
   - tool_spec:
       type: "cortex_search"
-      name: "my_search"
+      name: "Search"
       description: "Search product documentation"
 
 tool_resources:
-  my_search:
+  Search:
     name: "DB.SCHEMA.SEARCH_SERVICE"
     max_results: "3"
 ```
 
 ### Custom Tools (Generic)
 
-**Purpose**: Execute arbitrary business logic via stored procedures or UDFs.
+**Purpose**: Execute arbitrary business logic via stored procedures.
 
 **How it works**:
-1. Agent determines custom tool is needed
-2. Extracts required parameters from query
-3. Calls procedure with parameters
-4. Receives structured result
+1. Agent determines custom tool is needed based on description and orchestration instructions
+2. Extracts required parameters from user query using `input_schema`
+3. Calls procedure with extracted parameters
+4. Receives VARCHAR result
 5. Incorporates into response
 
 **Best for**:
-- Complex business logic
-- Multi-table operations
-- External API calls
+- Complex business logic (pricing, discounts)
+- Multi-table operations (inventory checks)
 - Calculations not expressible in semantic models
+- Pre-built business rules
 
 **Configuration** (in `FROM SPECIFICATION` YAML):
 ```yaml
 tools:
   - tool_spec:
       type: "generic"
-      name: "my_custom_tool"
-      description: "Calculate customer lifetime value"
+      name: "InventoryLookup"
+      description: "Check product stock levels"
       input_schema:
         type: "object"
         properties:
-          customer_id:
+          p_product_name:
             type: "string"
-            description: "The customer ID to analyze"
-        required: ["customer_id"]
+            description: "The product name to check"
+        required: ["p_product_name"]
 
 tool_resources:
-  my_custom_tool:
+  InventoryLookup:
     type: "procedure"
-    identifier: "DB.SCHEMA.CALCULATE_CLV"
+    identifier: "DB.SCHEMA.CHECK_INVENTORY_PROC"
     execution_environment:
       type: "warehouse"
       warehouse: "COMPUTE_WH"
 ```
+
+**Key requirements for stored procedures**:
+- Use `CREATE PROCEDURE` (not `CREATE FUNCTION`)
+- Use `EXECUTE AS CALLER`
+- Prefix parameters with `p_` to avoid column name collisions
+- Return `VARCHAR` with human-readable results
+- `input_schema` parameter names must match procedure parameter names exactly
 
 ---
 
@@ -178,9 +200,12 @@ Guide the agent's planning and tool selection.
 
 **Good patterns**:
 ```
-"Use sales_data for questions about revenue, quantities, or trends.
-Use product_docs for specifications, troubleshooting, or documentation.
-If a question spans both, query each tool and combine the results."
+"Use Analyst for questions about revenue, quantities, or trends.
+Use Search for specifications, troubleshooting, or documentation.
+Use InventoryLookup for stock level checks.
+Use PriceCalculator for pricing quotes with bulk discounts.
+Use ProductSummary for quick product performance overviews.
+If a question spans multiple tools, query each and combine the results."
 ```
 
 **What to include**:
@@ -225,8 +250,8 @@ With threads:
 ### Thread Lifecycle
 
 ```
-1. Create thread → Get thread_id
-2. Send message (parent_message_id = "0") → Get message_id
+1. Create thread -> Get thread_id
+2. Send message (parent_message_id = "0") -> Get message_id
 3. Send follow-up (parent_message_id = previous message_id)
 4. Continue conversation...
 5. Thread expires after TTL
@@ -247,11 +272,11 @@ With threads:
 
 ```
 User makes request
-    ↓
+    |
 Agent runs with CALLER's privileges
-    ↓
+    |
 Tool accesses data with caller's grants
-    ↓
+    |
 RBAC policies apply automatically
 ```
 
@@ -260,7 +285,7 @@ RBAC policies apply automatically
 1. **Agent doesn't bypass permissions** - The caller must have access to underlying data
 2. **Row access policies apply** - Users see only their permitted data
 3. **Masking policies apply** - Sensitive data is masked per policy
-4. **Custom tools run as definer or caller** - Choose based on security needs
+4. **Custom tools run as caller** - Use `EXECUTE AS CALLER` for proper privilege flow
 
 ### Least Privilege Setup
 
@@ -274,6 +299,8 @@ GRANT USAGE ON SCHEMA mydb.myschema TO ROLE agent_user_role;
 GRANT USAGE ON AGENT mydb.myschema.my_agent TO ROLE agent_user_role;
 GRANT SELECT ON SEMANTIC VIEW mydb.myschema.sales_view TO ROLE agent_user_role;
 GRANT USAGE ON CORTEX SEARCH SERVICE mydb.myschema.docs_search TO ROLE agent_user_role;
+GRANT USAGE ON PROCEDURE mydb.myschema.check_inventory_proc(VARCHAR) TO ROLE agent_user_role;
+GRANT USAGE ON PROCEDURE mydb.myschema.calculate_price_proc(VARCHAR, NUMBER) TO ROLE agent_user_role;
 
 -- Don't grant access to underlying tables directly!
 ```
@@ -304,7 +331,7 @@ GRANT USAGE ON CORTEX SEARCH SERVICE mydb.myschema.docs_search TO ROLE agent_use
 
 ## Common Architecture Patterns
 
-### Pattern 1: Sales + Documentation Agent
+### Pattern 1: Sales + Documentation Agent (2 tools)
 
 ```
 ┌─────────────────────────────────────┐
@@ -318,17 +345,26 @@ GRANT USAGE ON CORTEX SEARCH SERVICE mydb.myschema.docs_search TO ROLE agent_use
 └─────────────────────────────────────┘
 ```
 
-### Pattern 2: Multi-Domain Agent
+### Pattern 2: Full Sales Assistant (5 tools)
 
 ```
 ┌─────────────────────────────────────┐
-│            AGENT                    │
+│         SALES ASSISTANT             │
 ├─────────────────────────────────────┤
-│  Tool 1: Sales Analyst              │
-│  Tool 2: Inventory Analyst          │
-│  Tool 3: Customer Search            │
-│  Tool 4: Policy Search              │
-│  Tool 5: Custom Calculator          │
+│  Tool 1: Analyst                    │
+│  └─ Semantic View (sales metrics)   │
+│                                     │
+│  Tool 2: Search                     │
+│  └─ Search Service (product docs)   │
+│                                     │
+│  Tool 3: InventoryLookup            │
+│  └─ Procedure (stock levels)        │
+│                                     │
+│  Tool 4: PriceCalculator            │
+│  └─ Procedure (pricing + discounts) │
+│                                     │
+│  Tool 5: ProductSummary             │
+│  └─ Procedure (performance stats)   │
 └─────────────────────────────────────┘
 ```
 
@@ -336,10 +372,10 @@ GRANT USAGE ON CORTEX SEARCH SERVICE mydb.myschema.docs_search TO ROLE agent_use
 
 ```
 Any agent created with CREATE AGENT can be used in Snowflake Intelligence:
-    │
-    ├─ Cortex Analyst → Semantic view for structured queries
-    ├─ Cortex Search → Knowledge base for RAG
-    └─ Custom tools → Business-specific logic
+    |
+    ├─ Cortex Analyst -> Semantic view for structured queries
+    ├─ Cortex Search -> Knowledge base for RAG
+    └─ Custom tools -> Business-specific logic
 
 Access via: AI & ML > Snowflake Intelligence > select agent
 ```
@@ -352,6 +388,12 @@ Access via: AI & ML > Snowflake Intelligence > select agent
 1. One tool
 2. Basic instructions
 3. Test with representative queries
+
+### Add Custom Tools
+1. Identify logic that can't be expressed in semantic views
+2. Create stored procedures with clear inputs/outputs
+3. Add `generic` tools with descriptive `input_schema`
+4. Update orchestration instructions for new tools
 
 ### Iterate Based on Usage
 1. Monitor which tools are used

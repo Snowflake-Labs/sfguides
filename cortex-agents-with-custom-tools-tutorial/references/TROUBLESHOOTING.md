@@ -158,6 +158,31 @@ $$;
 
 ---
 
+### Generic tool "execution failed" or parameter mismatch
+
+**Cause**: The `input_schema` parameter names don't match the procedure parameter names.
+
+**WRONG**:
+```yaml
+input_schema:
+  properties:
+    product_name:          # Doesn't match procedure param!
+      type: "string"
+```
+```sql
+CREATE PROCEDURE my_proc(p_product_name VARCHAR) ...
+```
+
+**CORRECT**:
+```yaml
+input_schema:
+  properties:
+    p_product_name:        # Must match procedure param exactly
+      type: "string"
+```
+
+---
+
 ## Agent Creation Errors
 
 ### "Insufficient privileges to create agent"
@@ -299,6 +324,7 @@ ALTER USER myuser SET DEFAULT_WAREHOUSE = COMPUTE_WH;
 - Underlying semantic view has errors
 - Search service is still initializing
 - Column referenced doesn't exist
+- Procedure raised an error
 
 **Solutions**:
 1. Test the semantic view directly:
@@ -316,6 +342,11 @@ ALTER USER myuser SET DEFAULT_WAREHOUSE = COMPUTE_WH;
 3. Verify table columns:
    ```sql
    DESCRIBE TABLE my_table;
+   ```
+4. Test procedure directly:
+   ```sql
+   CALL check_inventory_proc('Laptop Pro');
+   CALL calculate_price_proc('Laptop Pro', 25);
    ```
 
 ---
@@ -383,7 +414,8 @@ DESC CORTEX SEARCH SERVICE my_search;
 Before debugging the agent:
 1. Test semantic view: `SELECT * FROM SEMANTIC_VIEW(...)`
 2. Test search service: Check via `DESC`
-3. Test procedure: `CALL my_proc(...)`
+3. Test each procedure: `CALL my_proc(...)`
+4. Only then test the full agent
 
 ### Check Agent Response Details
 
@@ -401,7 +433,7 @@ from snowflake.snowpark.context import get_active_session
 session = get_active_session()
 result = session.sql("""
   SELECT SNOWFLAKE.CORTEX.DATA_AGENT_RUN(
-    'DB.SCHEMA.MY_AGENT',
+    'CORTEX_AGENTS_LAB.TUTORIAL.SALES_ASSISTANT',
     $${"messages": [{"role": "user", "content": [{"type": "text", "text": "Your question"}]}]}$$
   ) AS resp
 """).collect()
@@ -411,6 +443,9 @@ for item in resp.get("content", []):
     print(f"--- {item.get('type')} ---")
     if item.get("type") == "thinking":
         print(item["thinking"]["text"])
+    elif item.get("type") == "tool_use":
+        print(f"Tool: {item['tool_use']['name']}")
+        print(f"Input: {json.dumps(item['tool_use'].get('input', {}), indent=2)}")
     elif item.get("type") == "tool_result":
         content_json = item["tool_result"].get("content", [{}])[0].get("json", {})
         if content_json.get("sql"):
@@ -440,7 +475,10 @@ for item in resp.get("content", []):
 | Agent Creation | `CREATE AGENT ... FROM SPECIFICATION $$ yaml $$` |
 | Analyst tool_resources | `execution_environment: {type: warehouse, warehouse: WH}` |
 | Search tool_resources | `name: "DB.SCHEMA.SERVICE"` |
+| Generic tool_resources | `type: procedure`, `identifier`, `execution_environment` |
+| Generic tool_spec | `input_schema` with matching param names |
 | DATA_AGENT_RUN | JSON with `messages` array |
+| Stored Procedures | `CREATE PROCEDURE`, `EXECUTE AS CALLER`, `p_` params |
 
 ---
 

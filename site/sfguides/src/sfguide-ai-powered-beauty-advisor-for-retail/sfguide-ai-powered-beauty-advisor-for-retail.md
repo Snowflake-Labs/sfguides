@@ -1,10 +1,11 @@
 author: Amit Gupta, Joviane Bellegarde
 id: sfguide-ai-powered-beauty-advisor-for-retail
 summary: Build an AI-powered beauty advisor with Snowflake Cortex Agent that delivers a complete shopping experience from product discovery through checkout.
-categories: snowflake-site:taxonomy/solution-center/certification/quickstart, snowflake-site:taxonomy/product/ai, snowflake-site:taxonomy/product/applications-and-collaboration
+categories: snowflake-site:taxonomy/solution-center/certification/quickstart, snowflake-site:taxonomy/industry/retail-and-cpg, snowflake-site:taxonomy/product/ai, snowflake-site:taxonomy/product/applications-and-collaboration, snowflake-site:taxonomy/snowflake-feature/cortex-analyst, snowflake-site:taxonomy/snowflake-feature/cortex-search, snowflake-site:taxonomy/snowflake-feature/snowpark-container-services
+tags: Cortex Agent, Cortex Analyst, Cortex Search, Hybrid Tables, SPCS, Retail, AI
 language: en
 environments: web
-status: Published
+status: Hidden
 feedback link: https://github.com/Snowflake-Labs/sfguides/issues
 fork repo link: https://github.com/Snowflake-Labs/sfguide-ai-powered-beauty-advisor-for-retail
 
@@ -29,9 +30,9 @@ The beauty advisor connects to a unified Product 360 data model across five doma
 | **Vector Search** | Face embedding matching for customer recognition |
 
 ### Prerequisites
-- A Snowflake account ([Enterprise edition](https://signup.snowflake.com/) or higher)
+- A Snowflake account (<a href="https://signup.snowflake.com/" target="_blank">Enterprise edition</a> or higher)
 - A user with the ACCOUNTADMIN role
-- [Docker Desktop](https://www.docker.com/products/docker-desktop/) installed and running
+- <a href="https://www.docker.com/products/docker-desktop/" target="_blank">Docker Desktop</a> installed and running
 
 ### What You'll Learn
 - How to create a Cortex Agent with 16 tools spanning five data domains
@@ -55,9 +56,9 @@ The beauty advisor connects to a unified Product 360 data model across five doma
 <!-- ------------------------ -->
 ## Set Up the Environment
 
-Open a new SQL worksheet in [Snowsight](https://app.snowflake.com) and run the following script. It creates the role, database, schemas, warehouse, and compute resources you need for the rest of the guide.
+Open a new SQL workspace in <a href="https://app.snowflake.com" target="_blank">Snowsight</a> and run the following script. It creates the role, database, schemas, warehouse, and compute resources you need for the rest of the guide.
 
-Copy and paste the full contents of [`scripts/sql/01_setup_database.sql`](https://github.com/Snowflake-Labs/sfguide-ai-powered-beauty-advisor-for-retail/blob/main/scripts/sql/01_setup_database.sql) into the worksheet and run all statements.
+Copy and paste the full contents of <a href="https://github.com/Snowflake-Labs/sfguide-ai-powered-beauty-advisor-for-retail/blob/main/scripts/sql/01_setup_database.sql" target="_blank">scripts/sql/01_setup_database.sql</a> into the workspace and run all statements.
 
 This creates:
 
@@ -83,9 +84,9 @@ You should see 7 schemas (plus `INFORMATION_SCHEMA` and `PUBLIC`).
 <!-- ------------------------ -->
 ## Connect to the GitHub Repository
 
-Before loading data, connect Snowflake to the GitHub repository that contains all the source files for this guide. This uses Snowflake's [Git Integration](https://docs.snowflake.com/en/developer-guide/git/git-setting-up) feature.
+Before loading data, connect Snowflake to the GitHub repository that contains all the source files for this guide. This uses Snowflake's <a href="https://docs.snowflake.com/en/developer-guide/git/git-setting-up" target="_blank">Git Integration</a> feature.
 
-Run the following in your Snowsight worksheet:
+Run the following in your Snowsight workspace:
 
 ```sql
 USE ROLE ACCOUNTADMIN;
@@ -125,7 +126,7 @@ This step creates approximately 25 tables across all schemas and loads them with
 
 ### Create the Tables
 
-Run the full contents of [`scripts/sql/02_create_tables.sql`](https://github.com/Snowflake-Labs/sfguide-ai-powered-beauty-advisor-for-retail/blob/main/scripts/sql/02_create_tables.sql) in your worksheet.
+Run the full contents of <a href="https://github.com/Snowflake-Labs/sfguide-ai-powered-beauty-advisor-for-retail/blob/main/scripts/sql/02_create_tables.sql" target="_blank">scripts/sql/02_create_tables.sql</a> in your workspace.
 
 This creates regular tables for products, customers, inventory, and social data. It also creates **Hybrid Tables** in the `CART_OLTP` schema — these provide ACID transactions, row-level locking, and foreign key enforcement for the shopping cart, giving the chatbot low-latency cart operations (10-50ms).
 
@@ -133,7 +134,7 @@ This creates regular tables for products, customers, inventory, and social data.
 
 ### Load Sample Data
 
-Next, run the full contents of [`scripts/sql/03_load_sample_data.sql`](https://github.com/Snowflake-Labs/sfguide-ai-powered-beauty-advisor-for-retail/blob/main/scripts/sql/03_load_sample_data.sql).
+Next, run the full contents of <a href="https://github.com/Snowflake-Labs/sfguide-ai-powered-beauty-advisor-for-retail/blob/main/scripts/sql/03_load_sample_data.sql" target="_blank">scripts/sql/03_load_sample_data.sql</a>.
 
 This copies 24 CSV files and product images from the Git repository into Snowflake, then loads them into all tables. It uses `MATCH_BY_COLUMN_NAME = CASE_INSENSITIVE` so column order in the CSVs does not matter.
 
@@ -153,7 +154,7 @@ ORDER BY table_name;
 
 Semantic views let you ask natural language questions about your data. Cortex Analyst converts those questions into SQL using the metadata you define — table relationships, business metrics, and common synonyms.
 
-Run the full contents of [`scripts/sql/04_create_semantic_views.sql`](https://github.com/Snowflake-Labs/sfguide-ai-powered-beauty-advisor-for-retail/blob/main/scripts/sql/04_create_semantic_views.sql) in your worksheet.
+Run the full contents of <a href="https://github.com/Snowflake-Labs/sfguide-ai-powered-beauty-advisor-for-retail/blob/main/scripts/sql/04_create_semantic_views.sql" target="_blank">scripts/sql/04_create_semantic_views.sql</a> in your workspace.
 
 This creates five semantic views:
 
@@ -182,7 +183,7 @@ This step creates the search services and vector search procedures that power th
 
 ### Create Cortex Search Services
 
-Run the full contents of [`scripts/sql/05_create_cortex_search.sql`](https://github.com/Snowflake-Labs/sfguide-ai-powered-beauty-advisor-for-retail/blob/main/scripts/sql/05_create_cortex_search.sql).
+Run the full contents of <a href="https://github.com/Snowflake-Labs/sfguide-ai-powered-beauty-advisor-for-retail/blob/main/scripts/sql/05_create_cortex_search.sql" target="_blank">scripts/sql/05_create_cortex_search.sql</a>.
 
 This creates two Cortex Search services:
 
@@ -203,7 +204,7 @@ SHOW CORTEX SEARCH SERVICES IN DATABASE AGENT_COMMERCE;
 
 ### Create Vector Search Procedures
 
-Run the full contents of [`scripts/sql/06_create_vector_embeddings.sql`](https://github.com/Snowflake-Labs/sfguide-ai-powered-beauty-advisor-for-retail/blob/main/scripts/sql/06_create_vector_embeddings.sql).
+Run the full contents of <a href="https://github.com/Snowflake-Labs/sfguide-ai-powered-beauty-advisor-for-retail/blob/main/scripts/sql/06_create_vector_embeddings.sql" target="_blank">scripts/sql/06_create_vector_embeddings.sql</a>.
 
 This creates six stored procedures for face-based customer recognition using 128-dimensional vector embeddings:
 
@@ -221,7 +222,7 @@ These procedures use `VECTOR_COSINE_SIMILARITY` and `VECTOR_L2_DISTANCE` for fas
 
 The Cortex Agent needs tools to take actions — analyzing faces, matching product colors, and managing the shopping cart. This step creates those tools as SQL functions and procedures the agent can call.
 
-Run the full contents of [`scripts/sql/07_create_agent_tools.sql`](https://github.com/Snowflake-Labs/sfguide-ai-powered-beauty-advisor-for-retail/blob/main/scripts/sql/07_create_agent_tools.sql).
+Run the full contents of <a href="https://github.com/Snowflake-Labs/sfguide-ai-powered-beauty-advisor-for-retail/blob/main/scripts/sql/07_create_agent_tools.sql" target="_blank">scripts/sql/07_create_agent_tools.sql</a>.
 
 This creates nine tools:
 
@@ -244,7 +245,7 @@ The cart tools operate on Hybrid Tables, giving the agent real-time transactiona
 
 Now you bring everything together. The Cortex Agent is the orchestration layer that decides which tools to call based on the shopper's question.
 
-Run the full contents of [`scripts/sql/08_create_cortex_agent.sql`](https://github.com/Snowflake-Labs/sfguide-ai-powered-beauty-advisor-for-retail/blob/main/scripts/sql/08_create_cortex_agent.sql).
+Run the full contents of <a href="https://github.com/Snowflake-Labs/sfguide-ai-powered-beauty-advisor-for-retail/blob/main/scripts/sql/08_create_cortex_agent.sql" target="_blank">scripts/sql/08_create_cortex_agent.sql</a>.
 
 This creates `UTIL.AGENTIC_COMMERCE_ASSISTANT` — a Cortex Agent powered by `claude-4-sonnet` with 16 tools:
 
@@ -305,7 +306,7 @@ SELECT CONCAT(
 
 ### Create the SPCS Service
 
-Back in Snowsight, run the full contents of [`scripts/sql/09_deploy_spcs.sql`](https://github.com/Snowflake-Labs/sfguide-ai-powered-beauty-advisor-for-retail/blob/main/scripts/sql/09_deploy_spcs.sql).
+Back in Snowsight, run the full contents of <a href="https://github.com/Snowflake-Labs/sfguide-ai-powered-beauty-advisor-for-retail/blob/main/scripts/sql/09_deploy_spcs.sql" target="_blank">scripts/sql/09_deploy_spcs.sql</a>.
 
 This creates the `AGENT_COMMERCE_BACKEND` service with a public endpoint for the face analysis API.
 
@@ -327,7 +328,7 @@ Save this URL — you will use it to access the beauty advisor.
 
 ### Load Face Images and Demo Customer
 
-Run the full contents of [`scripts/sql/10_load_face_images_and_embeddings.sql`](https://github.com/Snowflake-Labs/sfguide-ai-powered-beauty-advisor-for-retail/blob/main/scripts/sql/10_load_face_images_and_embeddings.sql), then run [`scripts/sql/11_add_demo_customer.sql`](https://github.com/Snowflake-Labs/sfguide-ai-powered-beauty-advisor-for-retail/blob/main/scripts/sql/11_add_demo_customer.sql).
+Run the full contents of <a href="https://github.com/Snowflake-Labs/sfguide-ai-powered-beauty-advisor-for-retail/blob/main/scripts/sql/10_load_face_images_and_embeddings.sql" target="_blank">scripts/sql/10_load_face_images_and_embeddings.sql</a>, then run <a href="https://github.com/Snowflake-Labs/sfguide-ai-powered-beauty-advisor-for-retail/blob/main/scripts/sql/11_add_demo_customer.sql" target="_blank">scripts/sql/11_add_demo_customer.sql</a>.
 
 The first script processes face images into 128-dimensional vector embeddings. The second adds a demo customer ("Sarah Johnson", Gold tier, 2,500 loyalty points) so you can test face recognition immediately.
 
@@ -387,7 +388,7 @@ Congratulations! You have built an AI-powered beauty advisor that combines six S
 
 ### Cleanup
 
-When you are done, run [`scripts/sql/99_teardown.sql`](https://github.com/Snowflake-Labs/sfguide-ai-powered-beauty-advisor-for-retail/blob/main/scripts/sql/99_teardown.sql) to remove all objects created in this guide:
+When you are done, run <a href="https://github.com/Snowflake-Labs/sfguide-ai-powered-beauty-advisor-for-retail/blob/main/scripts/sql/99_teardown.sql" target="_blank">scripts/sql/99_teardown.sql</a> to remove all objects created in this guide:
 
 ```sql
 -- Switch to AGENT_COMMERCE_ROLE first
@@ -409,9 +410,9 @@ DROP ROLE IF EXISTS AGENT_COMMERCE_ROLE;
 ```
 
 ### Related Resources
-- [GitHub Repository](https://github.com/Snowflake-Labs/sfguide-ai-powered-beauty-advisor-for-retail)
-- [Cortex Agent Documentation](https://docs.snowflake.com/en/user-guide/snowflake-cortex/cortex-agents)
-- [Cortex Analyst Documentation](https://docs.snowflake.com/en/user-guide/snowflake-cortex/cortex-analyst)
-- [Cortex Search Documentation](https://docs.snowflake.com/en/user-guide/snowflake-cortex/cortex-search)
-- [Hybrid Tables Documentation](https://docs.snowflake.com/en/sql-reference/sql/create-hybrid-table)
-- [Snowpark Container Services Documentation](https://docs.snowflake.com/en/developer-guide/snowpark-container-services/overview)
+- <a href="https://github.com/Snowflake-Labs/sfguide-ai-powered-beauty-advisor-for-retail" target="_blank">GitHub Repository</a>
+- <a href="https://docs.snowflake.com/en/user-guide/snowflake-cortex/cortex-agents" target="_blank">Cortex Agent Documentation</a>
+- <a href="https://docs.snowflake.com/en/user-guide/snowflake-cortex/cortex-analyst" target="_blank">Cortex Analyst Documentation</a>
+- <a href="https://docs.snowflake.com/en/user-guide/snowflake-cortex/cortex-search" target="_blank">Cortex Search Documentation</a>
+- <a href="https://docs.snowflake.com/en/sql-reference/sql/create-hybrid-table" target="_blank">Hybrid Tables Documentation</a>
+- <a href="https://docs.snowflake.com/en/developer-guide/snowpark-container-services/overview" target="_blank">Snowpark Container Services Documentation</a>
